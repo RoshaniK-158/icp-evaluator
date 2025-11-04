@@ -154,16 +154,33 @@ def main():
         }
         st.json(example_config)
         
+    # Add custom CSS for larger, bold labels
+    st.markdown("""
+    <style>
+    .big-label {
+        font-size: 18px !important;
+        font-weight: bold !important;
+        margin-bottom: 8px !important;
+        color: rgb(49, 51, 63) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="big-label">Upload your ICP configuration JSON file</div>', unsafe_allow_html=True)
+    
     uploaded_file = st.file_uploader(
-        "Upload your ICP configuration JSON file",
+        "",
         type=['json'],
         help="Upload a JSON file containing your ICP focus and rules"
     )
     
     # Text area for LinkedIn profile
     st.subheader("👤 LinkedIn Profile")
+    
+    st.markdown('<div class="big-label">Paste the LinkedIn \'About Section\' text here:</div>', unsafe_allow_html=True)
+    
     profile_text = st.text_area(
-        "Paste the LinkedIn 'About Section' text here:",
+        "",
         height=200,
         placeholder="Paste the LinkedIn profile's About section content here..."
     )
