@@ -172,8 +172,6 @@ async def evaluate_profile(request: ICPEvaluationRequest):
         )
 
 if __name__ == "__main__":
-    print("🚀 Starting ICP Evaluator API Backend...")
-    print("📝 Make sure OPENAI_API_KEY environment variable is set")
     uvicorn.run(
         app, 
         host="127.0.0.1", 

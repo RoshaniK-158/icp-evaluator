@@ -71,11 +71,24 @@ def main():
     This application evaluates LinkedIn profiles against your Ideal Customer Profile (ICP) criteria using AI.
     Upload your ICP configuration and paste a LinkedIn "About Section" to get an instant evaluation.
     """)
-    
+
     st.divider()
-    
+
     # File uploader for ICP configuration
     st.subheader("📄 ICP Configuration")
+
+    with st.expander("📖 ICP Configuration Format Example"):
+        st.markdown("Your JSON file should follow this format:")
+        example_config = {
+            "icp_focus": "Enterprise SaaS Sales Director",
+            "rules": [
+                "Must be a Director-level or higher.",
+                "Must explicitly mention experience selling software or SaaS products.",
+                "Must mention keywords like 'quota', 'pipeline management', or 'global teams'."
+            ]
+        }
+        st.json(example_config)
+
     uploaded_file = st.file_uploader(
         "Upload your ICP configuration JSON file",
         type=['json'],
@@ -128,33 +141,17 @@ def main():
         st.subheader("📊 Evaluation Results")
         
         if decision == "Fit":
-            st.success(f"✅ **{decision}**", icon="✅")
+            st.success(f"✅ **{decision}**")
         elif decision == "Not Fit":
-            st.error(f"❌ **{decision}**", icon="❌")
+            st.error(f"❌ **{decision}**")
         else:  # Error case
-            st.error(f"🚨 **{decision}**", icon="🚨")
+            st.error(f"🚨 **{decision}**")
         
         # Display reasoning
-        st.info(f"**Reasoning:** {reasoning}", icon="💭")
+        st.info(f"**Reasoning:** {reasoning}")
     
-    # Footer with example ICP format
-    st.divider()
-    with st.expander("📖 ICP Configuration Format Example"):
-        st.markdown("Your JSON file should follow this format:")
-        example_config = {
-            "icp_focus": "Enterprise SaaS Sales Director",
-            "rules": [
-                "Must be a Director-level or higher.",
-                "Must explicitly mention experience selling software or SaaS products.",
-                "Must mention keywords like 'quota', 'pipeline management', or 'global teams'."
-            ]
-        }
-        st.json(example_config)
+   
         
-    st.markdown("---")
-    st.markdown("🔑 **Note:** Make sure the API backend server is running on `http://127.0.0.1:8000` before using this application.")
-    st.markdown("💡 **Tip:** Run `python api_backend.py` to start the backend server.")
-
 
 if __name__ == "__main__":
     main()
