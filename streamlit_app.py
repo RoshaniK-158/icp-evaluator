@@ -27,7 +27,7 @@ def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
     """
     Dynamically construct the AI's System Prompt using the ICP rules and profile text.
     """
-    icp_focus = icp_rules_json.get("icp_focus", "")
+    icp_focus = icp_rules_json.get("icp_focus", icp_rules_json.get("icp_title", ""))
     rules = icp_rules_json.get("rules", [])
     
     rules_text = "\n".join([f"- {rule}" for rule in rules])
@@ -52,8 +52,8 @@ You must respond in this exact format:
 [Fit OR Not Fit]; [2-3 sentence reasoning explaining your decision]
 
 Example responses:
-- "Fit; The candidate is a VP of Sales with 8+ years of SaaS experience and explicitly mentions managing global sales teams and exceeding quotas. They demonstrate clear leadership in enterprise software sales."
-- "Not Fit; While the candidate has sales experience, they are only at Manager level rather than Director+ and their background is primarily in physical products rather than SaaS. They do not mention quota achievement or pipeline management."
+- "Fit; The candidate is a VP of DevOps with 10+ years of experience and explicitly mentions managing Kubernetes at enterprise scale with AWS. They demonstrate clear leadership in infrastructure automation and CI/CD implementation."
+- "Not Fit; While the candidate has technical experience, they are only at Senior Engineer level rather than management and their background is primarily in front-end development. They do not mention Kubernetes, cloud platforms, or infrastructure management."
 
 Now evaluate the profile and respond in the required format:"""
     
@@ -145,14 +145,27 @@ def main():
     with st.expander("📖 ICP Configuration Format Example"):
         st.markdown("Your JSON file should follow this format:")
         example_config = {
-            "icp_focus": "Enterprise SaaS Sales Director",
+            "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
             "rules": [
-                "Must be a Director-level or higher.",
-                "Must explicitly mention experience selling software or SaaS products.",
-                "Must mention keywords like 'quota', 'pipeline management', or 'global teams'."
+                "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
+                "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
+                "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
+                "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
+                "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
+                "Should include experience with containerization, specifically Docker, for local development or deployment."
             ]
         }
         st.json(example_config)
+        
+        # Add download button for the example configuration
+        example_json = json.dumps(example_config, indent=2)
+        st.download_button(
+            label="📥 Download Sample Configuration",
+            data=example_json,
+            file_name="example_icp_config.json",
+            mime="application/json",
+            help="Download this sample configuration as a JSON file to use as a template"
+        )
         
     # Add custom CSS for larger, bold labels
     st.markdown("""

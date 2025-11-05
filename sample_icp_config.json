@@ -1,8 +1,11 @@
 {
-  "icp_focus": "Enterprise SaaS Sales Director",
+  "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
   "rules": [
-    "Must be a Director-level or higher.",
-    "Must explicitly mention experience selling software or SaaS products.",
-    "Must mention keywords like 'quota', 'pipeline management', or 'global teams'."
+    "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
+    "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
+    "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
+    "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
+    "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
+    "Should include experience with containerization, specifically Docker, for local development or deployment."
   ]
 }

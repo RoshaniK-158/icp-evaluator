@@ -1,12 +1,72 @@
 import streamlit as st
 import json
-import requests
+import openai
+import os
 from typing import Tuple
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+
+def get_openai_client():
+    """Initialize OpenAI client using environment variables or Streamlit secrets"""
+    try:
+        # Try environment variable first (for local development)
+        api_key = os.getenv('OPENAI_API_KEY')
+        
+        # If not found, try Streamlit secrets (for cloud deployment)
+        if not api_key and hasattr(st, 'secrets') and 'openai' in st.secrets:
+            api_key = st.secrets.openai.api_key
+        
+        if not api_key:
+            return None, "OpenAI API key not found. Please configure it in environment variables or Streamlit secrets."
+        
+        return openai.OpenAI(api_key=api_key), None
+    except Exception as e:
+        return None, f"Error initializing OpenAI client: {str(e)}"
+
+
+def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
+    """
+    Dynamically construct the AI's System Prompt using the ICP rules and profile text.
+    """
+    icp_focus = icp_rules_json.get("icp_focus", icp_rules_json.get("icp_title", ""))
+    rules = icp_rules_json.get("rules", [])
+    
+    rules_text = "\n".join([f"- {rule}" for rule in rules])
+    
+    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Your task is to determine if a LinkedIn profile matches the specified ICP criteria.
+
+ICP FOCUS: {icp_focus}
+
+ICP RULES:
+{rules_text}
+
+PROFILE TEXT TO EVALUATE:
+{profile_text}
+
+INSTRUCTIONS:
+1. Carefully analyze the profile text against each ICP rule
+2. Determine if the profile is a "Fit" or "Not Fit" based on ALL criteria
+3. Provide a 2-3 sentence justification for your decision
+
+REQUIRED OUTPUT FORMAT:
+You must respond in this exact format:
+[Fit OR Not Fit]; [2-3 sentence reasoning explaining your decision]
+
+Example responses:
+- "Fit; The candidate is a VP of DevOps with 10+ years of experience and explicitly mentions managing Kubernetes at enterprise scale with AWS. They demonstrate clear leadership in infrastructure automation and CI/CD implementation."
+- "Not Fit; While the candidate has technical experience, they are only at Senior Engineer level rather than management and their background is primarily in front-end development. They do not mention Kubernetes, cloud platforms, or infrastructure management."
+
+Now evaluate the profile and respond in the required format:"""
+    
+    return prompt
 
 
 def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]:
     """
-    Call the custom API backend to evaluate the profile.
+    Evaluate the profile using OpenAI directly (cloud-compatible version).
     
     Args:
         profile_text (str): The LinkedIn profile about section text
@@ -16,42 +76,43 @@ def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]
         Tuple[str, str]: (Decision, Reasoning) where Decision is 'Fit', 'Not Fit', or 'Error'
     """
     try:
-        # API endpoint
-        api_url = "http://127.0.0.1:8000/evaluate"
+        # Initialize OpenAI client
+        client, error = get_openai_client()
+        if not client:
+            return ("Error", error)
         
-        # Prepare the request payload
-        payload = {
-            "profile_text": profile_text,
-            "icp_rules_json": icp_rules_json
-        }
+        # Construct the prompt
+        prompt = construct_prompt(icp_rules_json, profile_text)
         
-        # Make the API call to our custom backend
-        response = requests.post(
-            api_url,
-            json=payload,
-            timeout=30,  # 30 second timeout
-            headers={"Content-Type": "application/json"}
+        # Make the OpenAI API call
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": prompt}
+            ],
+            max_tokens=300,
+            temperature=0.3
         )
         
-        # Check if the request was successful
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success", False):
-                return (result["decision"], result["reasoning"])
-            else:
-                return ("Error", result.get("reasoning", "Unknown error occurred"))
-        else:
-            error_detail = response.json().get("detail", "Unknown API error")
-            return ("Error", f"API Error ({response.status_code}): {error_detail}")
+        # Extract the response content
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Parse the response to extract decision and reasoning
+        if ';' in ai_response:
+            parts = ai_response.split(';', 1)
+            decision = parts[0].strip()
+            reasoning = parts[1].strip()
             
-    except requests.exceptions.ConnectionError:
-        return ("Error", "Cannot connect to API backend. Please ensure the API server is running on http://127.0.0.1:8000")
-    except requests.exceptions.Timeout:
-        return ("Error", "API request timed out. Please try again.")
-    except requests.exceptions.RequestException as e:
-        return ("Error", f"Request error: {str(e)}")
+            # Validate the decision
+            if decision in ['Fit', 'Not Fit']:
+                return (decision, reasoning)
+            else:
+                return ('Error', f'Invalid decision format received: {decision}. Expected "Fit" or "Not Fit".')
+        else:
+            return ('Error', f'Could not parse AI response. Expected format: "Decision; Reasoning". Received: {ai_response}')
+            
     except Exception as e:
-        return ("Error", f"Unexpected error: {str(e)}")
+        return ('Error', f'An API error occurred: {str(e)}')
 
 
 def main():
@@ -71,23 +132,40 @@ def main():
     This application evaluates LinkedIn profiles against your Ideal Customer Profile (ICP) criteria using AI.
     Upload your ICP configuration and paste a LinkedIn "About Section" to get an instant evaluation.
     """)
+    
+    # Check API key configuration
+    client, error = get_openai_client()
+    if not client:
+        st.error(f"🚨 **Configuration Error**: {error}")
+        st.info("💡 **For local development**: Set the `OPENAI_API_KEY` environment variable")
+        st.info("☁️ **For Streamlit Cloud**: Configure the API key in the Secrets management section")
+        return
 
     st.divider()
 
     # File uploader for ICP configuration
     st.subheader("📄 ICP Configuration")
 
-    with st.expander("📖 ICP Configuration Format Example"):
-        st.markdown("Your JSON file should follow this format:")
-        example_config = {
-            "icp_focus": "Enterprise SaaS Sales Director",
-            "rules": [
-                "Must be a Director-level or higher.",
-                "Must explicitly mention experience selling software or SaaS products.",
-                "Must mention keywords like 'quota', 'pipeline management', or 'global teams'."
-            ]
-        }
-        st.json(example_config)
+    # Download example configuration button
+    example_config = {
+        "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
+        "rules": [
+            "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
+            "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
+            "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
+            "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
+            "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
+            "Should include experience with containerization, specifically Docker, for local development or deployment."
+        ]
+    }
+    example_json = json.dumps(example_config, indent=2)
+    st.download_button(
+        label="📥 Download Sample Configuration",
+        data=example_json,
+        file_name="example_icp_config.json",
+        mime="application/json",
+        help="Download this sample configuration as a JSON file to use as a template"
+    )
         
     # Add custom CSS for larger, bold labels
     st.markdown("""
