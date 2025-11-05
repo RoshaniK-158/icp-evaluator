@@ -27,35 +27,34 @@ def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
     """
     Dynamically construct the AI's System Prompt using the ICP rules and profile text.
     """
-    icp_focus = icp_rules_json.get("icp_focus", icp_rules_json.get("icp_title", ""))
+    icp_title = icp_rules_json.get("icp_title", icp_rules_json.get("icp_focus", ""))
     rules = icp_rules_json.get("rules", [])
     
     rules_text = "\n".join([f"- {rule}" for rule in rules])
     
-    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Your task is to determine if a LinkedIn profile matches the specified ICP criteria.
+    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Analyze if this LinkedIn profile matches the specified criteria.
 
-ICP FOCUS: {icp_focus}
+ICP TARGET: {icp_title}
 
-ICP RULES:
+CRITERIA TO EVALUATE:
 {rules_text}
 
-PROFILE TEXT TO EVALUATE:
+LINKEDIN PROFILE:
 {profile_text}
 
 INSTRUCTIONS:
-1. Carefully analyze the profile text against each ICP rule
-2. Determine if the profile is a "Fit" or "Not Fit" based on ALL criteria
-3. Provide a 2-3 sentence justification for your decision
+1. Analyze the profile against each criteria
+2. Determine "Fit" or "Not Fit" based on ALL criteria
+3. Provide clear justification
 
-REQUIRED OUTPUT FORMAT:
-You must respond in this exact format:
-[Fit OR Not Fit]; [2-3 sentence reasoning explaining your decision]
+REQUIRED FORMAT:
+[Fit OR Not Fit]; [Your reasoning in 2-3 sentences]
 
-Example responses:
-- "Fit; The candidate is a VP of DevOps with 10+ years of experience and explicitly mentions managing Kubernetes at enterprise scale with AWS. They demonstrate clear leadership in infrastructure automation and CI/CD implementation."
-- "Not Fit; While the candidate has technical experience, they are only at Senior Engineer level rather than management and their background is primarily in front-end development. They do not mention Kubernetes, cloud platforms, or infrastructure management."
+Examples:
+- "Fit; Candidate is a Senior Full Stack Engineer with 6+ years experience, explicitly mentions Node.js and React expertise, and has PostgreSQL database experience with CI/CD knowledge."
+- "Not Fit; While candidate has frontend React skills, they lack backend Node.js experience and don't mention database technologies or testing frameworks required for this role."
 
-Now evaluate the profile and respond in the required format:"""
+Evaluate now:"""
     
     return prompt
 
@@ -142,30 +141,26 @@ def main():
     # File uploader for ICP configuration
     st.subheader("📄 ICP Configuration")
 
-    with st.expander("📖 ICP Configuration Format Example"):
-        st.markdown("Your JSON file should follow this format:")
-        example_config = {
-            "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
-            "rules": [
-                "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
-                "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
-                "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
-                "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
-                "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
-                "Should include experience with containerization, specifically Docker, for local development or deployment."
-            ]
-        }
-        st.json(example_config)
-        
-        # Add download button for the example configuration
-        example_json = json.dumps(example_config, indent=2)
-        st.download_button(
-            label="📥 Download Sample Configuration",
-            data=example_json,
-            file_name="example_icp_config.json",
-            mime="application/json",
-            help="Download this sample configuration as a JSON file to use as a template"
-        )
+    # Download example configuration button
+    example_config = {
+        "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
+        "rules": [
+            "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
+            "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
+            "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
+            "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
+            "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
+            "Should include experience with containerization, specifically Docker, for local development or deployment."
+        ]
+    }
+    example_json = json.dumps(example_config, indent=2)
+    st.download_button(
+        label="📥 Download Sample Configuration",
+        data=example_json,
+        file_name="example_icp_config.json",
+        mime="application/json",
+        help="Download this sample configuration as a JSON file to use as a template"
+    )
         
     # Add custom CSS for larger, bold labels
     st.markdown("""

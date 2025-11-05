@@ -31,14 +31,14 @@ def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
     """
     Dynamically construct the AI's System Prompt using the ICP rules and profile text.
     """
-    icp_focus = icp_rules_json.get("icp_focus", icp_rules_json.get("icp_title", ""))
+    icp_title = icp_rules_json.get("icp_title", icp_rules_json.get("icp_focus", ""))
     rules = icp_rules_json.get("rules", [])
     
     rules_text = "\n".join([f"- {rule}" for rule in rules])
     
     prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Your task is to determine if a LinkedIn profile matches the specified ICP criteria.
 
-ICP FOCUS: {icp_focus}
+ICP TARGET: {icp_title}
 
 ICP RULES:
 {rules_text}
