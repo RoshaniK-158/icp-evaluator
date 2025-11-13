@@ -48,7 +48,9 @@ INSTRUCTIONS:
 3. Provide clear justification
 
 REQUIRED FORMAT:
-[Fit OR Not Fit]; [Your reasoning in 2-3 sentences]
+Fit; [Your reasoning in 2-3 sentences]
+OR
+Not Fit; [Your reasoning in 2-3 sentences]
 
 Examples:
 - "Fit; Candidate is a Senior Full Stack Engineer with 6+ years experience, explicitly mentions Node.js and React expertise, and has PostgreSQL database experience with CI/CD knowledge."
@@ -97,6 +99,9 @@ def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]
             parts = ai_response.split(';', 1)
             decision = parts[0].strip()
             reasoning = parts[1].strip()
+            
+            # Clean up the decision by removing brackets and normalizing
+            decision = decision.replace('[', '').replace(']', '').strip()
             
             # Validate the decision
             if decision in ['Fit', 'Not Fit']:
