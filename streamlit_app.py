@@ -102,28 +102,21 @@ def get_openai_client():
         return None, f"Error initializing OpenAI client: {str(e)}"
 
 
-def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
+def construct_prompt(icp_content: str, profile_text: str) -> str:
     """
-    Dynamically construct the AI's System Prompt using the ICP rules and profile text.
+    Dynamically construct the AI's System Prompt using the ICP criteria text and profile text.
     """
-    icp_title = icp_rules_json.get("icp_title", icp_rules_json.get("icp_focus", ""))
-    rules = icp_rules_json.get("rules", [])
-    
-    rules_text = "\n".join([f"- {rule}" for rule in rules])
-    
     prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Analyze if this candidate profile matches the specified criteria.
 
-ICP TARGET: {icp_title}
-
-CRITERIA TO EVALUATE:
-{rules_text}
+ICP CRITERIA:
+{icp_content}
 
 CANDIDATE PROFILE:
 {profile_text}
 
 INSTRUCTIONS:
-1. Analyze the profile against each criteria
-2. Determine "Fit" or "Not Fit" based on ALL criteria
+1. Analyze the profile against the ICP criteria
+2. Determine "Fit" or "Not Fit" based on how well the candidate matches the criteria
 3. Provide clear justification
 
 REQUIRED FORMAT:
@@ -140,13 +133,13 @@ Evaluate now:"""
     return prompt
 
 
-def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]:
+def evaluate_profile(profile_text: str, icp_content: str) -> Tuple[str, str]:
     """
     Evaluate the profile using OpenAI directly (cloud-compatible version).
     
     Args:
         profile_text (str): The candidate profile text from resume, profile, or manual input
-        icp_rules_json (dict): The ICP configuration
+        icp_content (str): The ICP criteria in plain text format
         
     Returns:
         Tuple[str, str]: (Decision, Reasoning) where Decision is 'Fit', 'Not Fit', or 'Error'
@@ -161,7 +154,7 @@ def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]
             return ("Error", error)
         
         # Construct the prompt
-        prompt = construct_prompt(icp_rules_json, normalized_text)
+        prompt = construct_prompt(icp_content, normalized_text)
         
         # Make the OpenAI API call
         response = client.chat.completions.create(
@@ -244,37 +237,49 @@ def main():
     
     st.divider()
     
-    # File uploader for ICP configuration
+    # ICP Configuration Input Section
     st.markdown("## <i class='fas fa-file-alt icon'></i>ICP Configuration", unsafe_allow_html=True)
-
-    # Download example configuration button
-    example_config = {
-        "icp_title": "Senior Full Stack Engineer (Node.js/React Focus)",
-        "rules": [
-            "Must hold the title of 'Senior Software Engineer' or equivalent, with 5+ years of experience.",
-            "Must explicitly mention proficiency in a modern backend runtime, specifically Node.js (or Express for APIs).",
-            "Must demonstrate strong frontend expertise using a library like React (or including TypeScript).",
-            "Must list experience with a relational database technology, such as PostgreSQL or MySQL (mentioning AWS RDS is a strong indicator).",
-            "Must use keywords related to testing, APIs, and continuous integration (e.g., Unit Tests, REST APIs, CI/CD pipelines).",
-            "Should include experience with containerization, specifically Docker, for local development or deployment."
-        ]
-    }
-    example_json = json.dumps(example_config, indent=2)
-    st.download_button(
-        label="📥 Download Sample Configuration",
-        data=example_json,
-        file_name="example_icp_config.json",
-        mime="application/json",
-        help="Download this sample configuration as a JSON file to use as a template"
-    )
-        
-    st.markdown('<div class="big-label"><i class="fas fa-upload icon"></i>Upload your ICP configuration JSON file</div>', unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader(
-        "",
-        type=['json'],
-        help="Upload a JSON file containing your ICP focus and rules"
-    )
+    # Create tabs for different ICP input methods
+    icp_tab1, icp_tab2 = st.tabs(["✏️ Text Input", "📁 Upload Text File"])
+    
+    icp_content = ""
+    
+    with icp_tab1:
+        st.markdown('<div class="big-label"><i class="fas fa-edit icon"></i>Enter your ICP criteria:</div>', unsafe_allow_html=True)
+        icp_text = st.text_area(
+            "",
+            height=200,
+            placeholder="Enter your ICP criteria in simple text format. For example:\n\nTitle: Senior Full Stack Engineer\n\nCriteria:\n- Must have 5+ years of experience\n- Must know Node.js and React\n- Must have database experience (PostgreSQL/MySQL)\n- Should have testing and CI/CD knowledge\n- Docker experience preferred",
+            key="icp_text_input"
+        )
+        if icp_text.strip():
+            icp_content = icp_text.strip()
+    
+    with icp_tab2:
+        st.markdown('<div class="big-label"><i class="fas fa-file-upload icon"></i>Upload ICP criteria text file:</div>', unsafe_allow_html=True)
+        uploaded_file = st.file_uploader(
+            "",
+            type=['txt'],
+            help="Upload a text file containing your ICP criteria"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                icp_content = uploaded_file.read().decode('utf-8').strip()
+                st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i>Successfully loaded ICP criteria ({len(icp_content)} characters)</div>", unsafe_allow_html=True)
+                
+                # Show preview of uploaded content
+                with st.expander("Preview ICP Criteria", expanded=False):
+                    st.text_area(
+                        "ICP content:",
+                        value=icp_content[:500] + ("..." if len(icp_content) > 500 else ""),
+                        height=150,
+                        disabled=True
+                    )
+            except Exception as e:
+                st.markdown(f"<div style='color: red;'><i class='fas fa-times icon'></i>Error reading file: {str(e)}</div>", unsafe_allow_html=True)
+                icp_content = ""
     
     # Profile Input Section with multiple methods
     st.markdown("## <i class='fas fa-user icon'></i>Candidate Profile Input", unsafe_allow_html=True)
@@ -334,21 +339,10 @@ def main():
             else:
                 st.markdown("<div style='color: red;'><i class='fas fa-times icon'></i>Failed to extract text from PDF. Please try a different file or use manual text input.</div>", unsafe_allow_html=True)
     
-    # Display ICP configuration if uploaded
-    icp_rules_json = None
-    if uploaded_file is not None:
-        try:
-            icp_rules_json = json.load(uploaded_file)
-            
-            with st.expander("View ICP Configuration", expanded=False):
-                st.json(icp_rules_json)
-                
-        except json.JSONDecodeError:
-            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Invalid JSON file. Please upload a valid ICP configuration file.</div>", unsafe_allow_html=True)
-            icp_rules_json = None
-        except Exception as e:
-            st.markdown(f"<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Error reading file: {str(e)}</div>", unsafe_allow_html=True)
-            icp_rules_json = None
+    # Display ICP content if provided
+    if icp_content:
+        with st.expander("View Current ICP Criteria", expanded=False):
+            st.text(icp_content)
     
     st.divider()
     
@@ -384,8 +378,8 @@ def main():
     # Evaluation button and results
     if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True, help="Click to start AI evaluation"):
         # Validate inputs
-        if icp_rules_json is None:
-            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Please upload a valid ICP configuration JSON file.</div>", unsafe_allow_html=True)
+        if not icp_content:
+            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Please provide ICP criteria using one of the input methods above.</div>", unsafe_allow_html=True)
             return
             
         if not profile_text.strip():
@@ -408,18 +402,13 @@ def main():
                 
                 # Also show key terms that should be detected from the ICP configuration
                 key_terms = []
-                if icp_rules_json:
-                    # Extract key terms from ICP rules dynamically
-                    rules_text = " ".join(icp_rules_json.get("rules", []))
-                    icp_title = icp_rules_json.get("icp_title", "")
-                    combined_text = f"{icp_title} {rules_text}"
-                    
-                    # Extract potential key terms (technologies, skills, titles)
+                if icp_content:
+                    # Extract key terms from ICP content dynamically
                     # Look for technology names, frameworks, databases, etc.
                     tech_pattern = r'\b([A-Z][a-z]*(?:\.[a-z]+)?|[A-Z]{2,}(?:/[A-Z]+)*)\b'
-                    potential_terms = re.findall(tech_pattern, combined_text)
+                    potential_terms = re.findall(tech_pattern, icp_content)
                     # Filter to likely technology/skill terms (length > 2, not common words)
-                    common_words = {'Must', 'Should', 'The', 'And', 'For', 'With', 'Experience', 'Years', 'Including', 'Such', 'Like'}
+                    common_words = {'Must', 'Should', 'The', 'And', 'For', 'With', 'Experience', 'Years', 'Including', 'Such', 'Like', 'Have', 'Know', 'Title', 'Criteria', 'Senior', 'Junior', 'Preferred'}
                     key_terms = [term for term in set(potential_terms) if len(term) > 2 and term not in common_words][:10]  # Limit to 10 terms
                 
                 found_terms = [term for term in key_terms if term.lower() in profile_text.lower()]
@@ -430,7 +419,7 @@ def main():
                     st.write("**Key terms from ICP missing:**", missing_terms if missing_terms else "None")
             
             # Call the evaluation function
-            decision, reasoning = evaluate_profile(profile_text, icp_rules_json)
+            decision, reasoning = evaluate_profile(profile_text, icp_content)
         
         # Display results
         st.markdown("## <i class='fas fa-chart-bar icon'></i>Evaluation Results", unsafe_allow_html=True)
