@@ -87,14 +87,14 @@ def construct_prompt(icp_rules_json: dict, profile_text: str) -> str:
     
     rules_text = "\n".join([f"- {rule}" for rule in rules])
     
-    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Analyze if this LinkedIn profile matches the specified criteria.
+    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Analyze if this candidate profile matches the specified criteria.
 
 ICP TARGET: {icp_title}
 
 CRITERIA TO EVALUATE:
 {rules_text}
 
-LINKEDIN PROFILE:
+CANDIDATE PROFILE:
 {profile_text}
 
 INSTRUCTIONS:
@@ -121,7 +121,7 @@ def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]
     Evaluate the profile using OpenAI directly (cloud-compatible version).
     
     Args:
-        profile_text (str): The LinkedIn profile about section text
+        profile_text (str): The candidate profile text from resume, profile, or manual input
         icp_rules_json (dict): The ICP configuration
         
     Returns:
@@ -181,25 +181,44 @@ def main():
         layout="centered"
     )
     
-    # Page title and description
-    st.title("🎯 AI ICP Fit Evaluator")
+    # Add Font Awesome CSS
     st.markdown("""
-    This application evaluates LinkedIn profiles against your Ideal Customer Profile (ICP) criteria using AI.
-    Upload your ICP configuration and paste a LinkedIn "About Section" to get an instant evaluation.
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+    .icon {
+        margin-right: 8px;
+    }
+    .big-label {
+        font-size: 18px !important;
+        font-weight: bold !important;
+        margin-bottom: 8px !important;
+        color: rgb(49, 51, 63) !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        font-size: 16px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Page title and description
+    st.markdown("# <i class='fas fa-bullseye icon'></i>AI ICP Fit Evaluator", unsafe_allow_html=True)
+    st.markdown("""
+    This application evaluates candidate profiles against your Ideal Customer Profile (ICP) criteria using AI.
+    Upload your ICP configuration and add candidate profile data to get an instant evaluation.
     """)
     
     # Check API key configuration
     client, error = get_openai_client()
     if not client:
-        st.error(f"🚨 **Configuration Error**: {error}")
-        st.info("💡 **For local development**: Set the `OPENAI_API_KEY` environment variable")
-        st.info("☁️ **For Streamlit Cloud**: Configure the API key in the Secrets management section")
+        st.markdown(f"<div style='color: red;'><i class='fas fa-exclamation-triangle icon'></i><strong>Configuration Error</strong>: {error}</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color: blue;'><i class='fas fa-lightbulb icon'></i><strong>For local development</strong>: Set the `OPENAI_API_KEY` environment variable</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color: blue;'><i class='fas fa-cloud icon'></i><strong>For Streamlit Cloud</strong>: Configure the API key in the Secrets management section</div>", unsafe_allow_html=True)
         return
     
     st.divider()
     
     # File uploader for ICP configuration
-    st.subheader("📄 ICP Configuration")
+    st.markdown("## <i class='fas fa-file-alt icon'></i>ICP Configuration", unsafe_allow_html=True)
 
     # Download example configuration button
     example_config = {
@@ -222,19 +241,7 @@ def main():
         help="Download this sample configuration as a JSON file to use as a template"
     )
         
-    # Add custom CSS for larger, bold labels
-    st.markdown("""
-    <style>
-    .big-label {
-        font-size: 18px !important;
-        font-weight: bold !important;
-        margin-bottom: 8px !important;
-        color: rgb(49, 51, 63) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="big-label">Upload your ICP configuration JSON file</div>', unsafe_allow_html=True)
+    st.markdown('<div class="big-label"><i class="fas fa-upload icon"></i>Upload your ICP configuration JSON file</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader(
         "",
@@ -243,7 +250,7 @@ def main():
     )
     
     # Profile Input Section with multiple methods
-    st.subheader("👤 Candidate Profile Input")
+    st.markdown("## <i class='fas fa-user icon'></i>Candidate Profile Input", unsafe_allow_html=True)
     
     # Create tabs for different input methods (removed LinkedIn URL tab)
     tab1, tab2 = st.tabs(["📝 Manual Text", "📄 PDF Resume"])
@@ -252,11 +259,11 @@ def main():
     input_source = ""
     
     with tab1:
-        st.markdown('<div class="big-label">Paste profile/resume text here:</div>', unsafe_allow_html=True)
+        st.markdown('<div class="big-label"><i class="fas fa-keyboard icon"></i>Paste profile/resume text here:</div>', unsafe_allow_html=True)
         manual_text = st.text_area(
             "",
             height=200,
-            placeholder="Paste the candidate's profile text, resume content, or LinkedIn About section here...",
+            placeholder="Paste the candidate's profile text, resume content, or profile information here...",
             key="manual_text"
         )
         if manual_text.strip():
@@ -264,23 +271,23 @@ def main():
             input_source = "Manual Text"
     
     with tab2:
-        st.markdown('<div class="big-label">Upload PDF Resume:</div>', unsafe_allow_html=True)
+        st.markdown('<div class="big-label"><i class="fas fa-file-upload icon"></i>Upload PDF Resume:</div>', unsafe_allow_html=True)
         uploaded_pdf = st.file_uploader(
             "",
             type=['pdf'],
-            help="Upload a PDF resume or LinkedIn profile export",
+            help="Upload a PDF resume or profile export",
             key="pdf_uploader"
         )
         
         if uploaded_pdf is not None:
-            with st.spinner("📄 Extracting text from PDF..."):
+            with st.spinner("Extracting text from PDF..."):
                 extracted_text = extract_text_from_pdf(uploaded_pdf)
                 
             if extracted_text:
-                st.success(f"✅ Successfully extracted {len(extracted_text)} characters from PDF")
+                st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i>Successfully extracted {len(extracted_text)} characters from PDF</div>", unsafe_allow_html=True)
                 
                 # Show preview of extracted text
-                with st.expander("📖 Preview Extracted Text", expanded=False):
+                with st.expander("Preview Extracted Text", expanded=False):
                     st.text_area(
                         "Extracted content:",
                         value=extracted_text[:1000] + ("..." if len(extracted_text) > 1000 else ""),
@@ -291,7 +298,7 @@ def main():
                 profile_text = extracted_text
                 input_source = "PDF Resume"
             else:
-                st.error("❌ Failed to extract text from PDF. Please try a different file or use manual text input.")
+                st.markdown("<div style='color: red;'><i class='fas fa-times icon'></i>Failed to extract text from PDF. Please try a different file or use manual text input.</div>", unsafe_allow_html=True)
     
     # Display ICP configuration if uploaded
     icp_rules_json = None
@@ -299,47 +306,47 @@ def main():
         try:
             icp_rules_json = json.load(uploaded_file)
             
-            with st.expander("📋 View ICP Configuration", expanded=False):
+            with st.expander("View ICP Configuration", expanded=False):
                 st.json(icp_rules_json)
                 
         except json.JSONDecodeError:
-            st.warning("⚠️ Invalid JSON file. Please upload a valid ICP configuration file.")
+            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Invalid JSON file. Please upload a valid ICP configuration file.</div>", unsafe_allow_html=True)
             icp_rules_json = None
         except Exception as e:
-            st.warning(f"⚠️ Error reading file: {str(e)}")
+            st.markdown(f"<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Error reading file: {str(e)}</div>", unsafe_allow_html=True)
             icp_rules_json = None
     
     st.divider()
     
     # Show current input status
     if profile_text.strip():
-        st.success(f"✅ **Profile loaded from**: {input_source} ({len(profile_text)} characters)")
+        st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i><strong>Profile loaded from</strong>: {input_source} ({len(profile_text)} characters)</div>", unsafe_allow_html=True)
     
     # Evaluation button and results
-    if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True):
+    if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True, help="Click to start AI evaluation"):
         # Validate inputs
         if icp_rules_json is None:
-            st.warning("⚠️ Please upload a valid ICP configuration JSON file.")
+            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Please upload a valid ICP configuration JSON file.</div>", unsafe_allow_html=True)
             return
             
         if not profile_text.strip():
-            st.warning("⚠️ Please provide candidate profile data using one of the input methods above.")
+            st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Please provide candidate profile data using one of the input methods above.</div>", unsafe_allow_html=True)
             return
         
         # Show processing spinner
-        with st.spinner("🤖 AI is evaluating the profile..."):
+        with st.spinner("AI is evaluating the profile..."):
             # Call the evaluation function
             decision, reasoning = evaluate_profile(profile_text, icp_rules_json)
         
         # Display results
-        st.subheader("📊 Evaluation Results")
+        st.markdown("## <i class='fas fa-chart-bar icon'></i>Evaluation Results", unsafe_allow_html=True)
         
         if decision == "Fit":
-            st.success(f"✅ **{decision}**")
+            st.markdown(f"<div style='color: green; font-size: 20px; font-weight: bold;'><i class='fas fa-check-circle icon'></i>{decision}</div>", unsafe_allow_html=True)
         elif decision == "Not Fit":
-            st.error(f"❌ **{decision}**")
+            st.markdown(f"<div style='color: red; font-size: 20px; font-weight: bold;'><i class='fas fa-times-circle icon'></i>{decision}</div>", unsafe_allow_html=True)
         else:  # Error case
-            st.error(f"🚨 **{decision}**")
+            st.markdown(f"<div style='color: red; font-size: 20px; font-weight: bold;'><i class='fas fa-exclamation-triangle icon'></i>{decision}</div>", unsafe_allow_html=True)
         
         # Display reasoning
         st.info(f"**Reasoning:** {reasoning}")
