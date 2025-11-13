@@ -26,9 +26,13 @@ def extract_text_from_pdf(pdf_file) -> Optional[str]:
                 
                 if text_parts:
                     extracted_text = '\n\n'.join(text_parts)
-                    # Clean up the text
+                    # Enhanced text cleanup for PDF extraction
                     extracted_text = re.sub(r'\n+', '\n', extracted_text)  # Remove excessive newlines
-                    extracted_text = re.sub(r'\s+', ' ', extracted_text)   # Normalize whitespace
+                    extracted_text = re.sub(r'[ \t]+', ' ', extracted_text)   # Normalize whitespace
+                    extracted_text = re.sub(r'\n ', '\n', extracted_text)     # Remove spaces after newlines
+                    extracted_text = re.sub(r' \n', '\n', extracted_text)     # Remove spaces before newlines
+                    extracted_text = extracted_text.replace('\x00', '')       # Remove null characters
+                    extracted_text = extracted_text.replace('\ufffd', '')     # Remove replacement characters
                     return extracted_text.strip()
         except Exception:
             pass
@@ -46,9 +50,13 @@ def extract_text_from_pdf(pdf_file) -> Optional[str]:
             
             if text_parts:
                 extracted_text = '\n\n'.join(text_parts)
-                # Clean up the text
+                # Enhanced text cleanup for PDF extraction
                 extracted_text = re.sub(r'\n+', '\n', extracted_text)
-                extracted_text = re.sub(r'\s+', ' ', extracted_text)
+                extracted_text = re.sub(r'[ \t]+', ' ', extracted_text)
+                extracted_text = re.sub(r'\n ', '\n', extracted_text)
+                extracted_text = re.sub(r' \n', '\n', extracted_text)
+                extracted_text = extracted_text.replace('\x00', '')
+                extracted_text = extracted_text.replace('\ufffd', '')
                 return extracted_text.strip()
         except Exception:
             pass
@@ -58,6 +66,22 @@ def extract_text_from_pdf(pdf_file) -> Optional[str]:
     except Exception as e:
         st.error(f"Error processing PDF: {str(e)}")
         return None
+
+
+def normalize_text(text: str) -> str:
+    """Normalize text to ensure consistent processing between PDF and manual input."""
+    if not text:
+        return ""
+    
+    # Remove excessive whitespace and normalize line breaks
+    text = re.sub(r'\s+', ' ', text.strip())
+    # Remove special characters that might interfere
+    text = re.sub(r'[\u200b-\u200d\ufeff]', '', text)  # Remove zero-width characters
+    # Normalize quotes and dashes
+    text = re.sub(r'[\u2018\u2019]', "'", text)  # Normalize quotes
+    text = re.sub(r'[\u2013\u2014]', "-", text)  # Normalize dashes
+    
+    return text
 
 
 def get_openai_client():
@@ -128,13 +152,16 @@ def evaluate_profile(profile_text: str, icp_rules_json: dict) -> Tuple[str, str]
         Tuple[str, str]: (Decision, Reasoning) where Decision is 'Fit', 'Not Fit', or 'Error'
     """
     try:
+        # Normalize the text for consistent processing
+        normalized_text = normalize_text(profile_text)
+        
         # Initialize OpenAI client
         client, error = get_openai_client()
         if not client:
             return ("Error", error)
         
         # Construct the prompt
-        prompt = construct_prompt(icp_rules_json, profile_text)
+        prompt = construct_prompt(icp_rules_json, normalized_text)
         
         # Make the OpenAI API call
         response = client.chat.completions.create(
@@ -267,7 +294,14 @@ def main():
             key="manual_text"
         )
         if manual_text.strip():
-            profile_text = manual_text
+            # Normalize manual text input to match PDF processing
+            normalized_text = manual_text.strip()
+            normalized_text = re.sub(r'\n+', '\n', normalized_text)
+            normalized_text = re.sub(r'[ \t]+', ' ', normalized_text)
+            normalized_text = re.sub(r'\n ', '\n', normalized_text)
+            normalized_text = re.sub(r' \n', '\n', normalized_text)
+            
+            profile_text = normalized_text
             input_source = "Manual Text"
     
     with tab2:
@@ -295,7 +329,7 @@ def main():
                         disabled=True
                     )
                 
-                profile_text = extracted_text
+                profile_text = normalize_text(extracted_text)
                 input_source = "PDF Resume"
             else:
                 st.markdown("<div style='color: red;'><i class='fas fa-times icon'></i>Failed to extract text from PDF. Please try a different file or use manual text input.</div>", unsafe_allow_html=True)
@@ -320,7 +354,32 @@ def main():
     
     # Show current input status
     if profile_text.strip():
-        st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i><strong>Profile loaded from</strong>: {input_source} ({len(profile_text)} characters)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i><b>Profile loaded from:</b> {input_source} ({len(profile_text)} characters)</div>", unsafe_allow_html=True)
+        
+        # Add debug information to help troubleshoot
+        with st.expander("Debug Information", expanded=False):
+            st.write(f"**Text length:** {len(profile_text)} characters")
+            st.write(f"**First 200 characters:**")
+            st.code(repr(profile_text[:200]))
+            st.write(f"**Last 200 characters:**")
+            st.code(repr(profile_text[-200:]))
+            
+            # Show whitespace and special character count
+            import string
+            whitespace_count = sum(1 for c in profile_text if c.isspace())
+            special_char_count = sum(1 for c in profile_text if not c.isalnum() and not c.isspace())
+            st.write(f"**Whitespace characters:** {whitespace_count}")
+            st.write(f"**Special characters:** {special_char_count}")
+            st.write(f"**Line breaks:** {profile_text.count(chr(10))}")
+            
+            # Show a downloadable version of the processed text
+            st.download_button(
+                label="Download Processed Text",
+                data=profile_text,
+                file_name=f"processed_text_{input_source.lower().replace(' ', '_')}.txt",
+                mime="text/plain",
+                help="Download the exact text that will be sent to AI for evaluation"
+            )
     
     # Evaluation button and results
     if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True, help="Click to start AI evaluation"):
@@ -333,8 +392,43 @@ def main():
             st.markdown("<div style='color: orange;'><i class='fas fa-exclamation-triangle icon'></i>Please provide candidate profile data using one of the input methods above.</div>", unsafe_allow_html=True)
             return
         
-        # Show processing spinner
-        with st.spinner("AI is evaluating the profile..."):
+        # Show processing spinner with debugging info
+        with st.spinner("🤖 AI is evaluating the profile..."):
+            # Show debugging information
+            with st.expander("🔍 Debug: Text being sent to AI", expanded=False):
+                st.text_area(
+                    "Normalized text for AI evaluation:",
+                    value=profile_text[:500] + ("..." if len(profile_text) > 500 else ""),
+                    height=100,
+                    disabled=True,
+                    help="This shows the first 500 characters of the normalized text that will be sent to the AI"
+                )
+                st.write(f"**Text length:** {len(profile_text)} characters")
+                st.write(f"**Input source:** {input_source}")
+                
+                # Also show key terms that should be detected from the ICP configuration
+                key_terms = []
+                if icp_rules_json:
+                    # Extract key terms from ICP rules dynamically
+                    rules_text = " ".join(icp_rules_json.get("rules", []))
+                    icp_title = icp_rules_json.get("icp_title", "")
+                    combined_text = f"{icp_title} {rules_text}"
+                    
+                    # Extract potential key terms (technologies, skills, titles)
+                    # Look for technology names, frameworks, databases, etc.
+                    tech_pattern = r'\b([A-Z][a-z]*(?:\.[a-z]+)?|[A-Z]{2,}(?:/[A-Z]+)*)\b'
+                    potential_terms = re.findall(tech_pattern, combined_text)
+                    # Filter to likely technology/skill terms (length > 2, not common words)
+                    common_words = {'Must', 'Should', 'The', 'And', 'For', 'With', 'Experience', 'Years', 'Including', 'Such', 'Like'}
+                    key_terms = [term for term in set(potential_terms) if len(term) > 2 and term not in common_words][:10]  # Limit to 10 terms
+                
+                found_terms = [term for term in key_terms if term.lower() in profile_text.lower()]
+                missing_terms = [term for term in key_terms if term.lower() not in profile_text.lower()]
+                
+                if key_terms:
+                    st.write("**Key terms from ICP found in text:**", found_terms if found_terms else "None")
+                    st.write("**Key terms from ICP missing:**", missing_terms if missing_terms else "None")
+            
             # Call the evaluation function
             decision, reasoning = evaluate_profile(profile_text, icp_rules_json)
         
