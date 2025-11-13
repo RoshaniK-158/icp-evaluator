@@ -2,11 +2,13 @@ import streamlit as st
 import json
 import openai
 import os
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, List
 import PyPDF2
 import pdfplumber
 import io
 import re
+from difflib import SequenceMatcher
+import datetime
 
 
 def extract_text_from_pdf(pdf_file) -> Optional[str]:
@@ -68,6 +70,110 @@ def extract_text_from_pdf(pdf_file) -> Optional[str]:
         return None
 
 
+def extract_skills_from_icp(icp_content: str) -> List[str]:
+    """Dynamically extract skills and keywords from ICP content - works for any field."""
+    skills = []
+    
+    # Extract terms
+    term_patterns = [
+        r'\b[A-Z][a-zA-Z]*(?:\.[a-zA-Z]+)*\b',
+        r'\b[A-Z]{2,}\b',
+        r'\b[a-z]+[-_][a-z]+\b',
+        r'\b\w+(?:ing|tion|ment|ness|ity|ics)\b',
+    ]
+    
+    for pattern in term_patterns:
+        matches = re.findall(pattern, icp_content, re.IGNORECASE)
+        skills.extend([match.strip() for match in matches if len(match) > 2])
+    
+    # Extract quoted terms (often important skills/tools)
+    quoted_skills = re.findall(r'["\']([^"\'>]{2,30})["\']', icp_content)
+    skills.extend(quoted_skills)
+    
+    # Extract parenthetical mentions (often certifications, tools, examples)
+    paren_skills = re.findall(r'\(([^)]{2,30})\)', icp_content)
+    skills.extend(paren_skills)
+    
+    # Filter out generic words that appear in any field
+    generic_words = {
+        'must', 'should', 'the', 'and', 'for', 'with', 'experience', 
+        'years', 'including', 'such', 'like', 'have', 'know', 'title', 
+        'criteria', 'preferred', 'required', 'minimum', 'maximum', 'work',
+        'role', 'position', 'job', 'career', 'professional', 'skills'
+    }
+    
+    # Clean and deduplicate
+    clean_skills = []
+    for skill in skills:
+        skill_clean = skill.strip().lower()
+        if (len(skill_clean) > 2 and 
+            skill_clean not in generic_words and 
+            not skill_clean.isdigit() and
+            skill_clean not in clean_skills):
+            clean_skills.append(skill_clean)
+    
+    return clean_skills[:20]  # Return top 20 to cover more skills
+
+def calculate_skill_match_score(required_skills: List[str], candidate_text: str) -> Dict[str, float]:
+    """Calculate skill match scores using fuzzy matching - works for any field."""
+    candidate_lower = candidate_text.lower()
+    scores = {}
+    
+    for skill in required_skills:
+        skill_lower = skill.lower()
+        
+        # Direct exact match gets highest score
+        if skill_lower in candidate_lower:
+            scores[skill] = 1.0
+            continue
+        
+        # Fuzzy matching for partial matches and variations
+        best_match = 0.0
+        candidate_words = candidate_lower.split()
+        
+        for word in candidate_words:
+            # Check similarity with individual words
+            similarity = SequenceMatcher(None, skill_lower, word).ratio()
+            if similarity > 0.8:  # High similarity threshold
+                best_match = max(best_match, similarity)
+            
+            # Check if skill is contained in longer words (e.g., "java" in "javascript")
+            if len(skill_lower) > 3 and skill_lower in word:
+                best_match = max(best_match, 0.8)
+            
+            # Check if word is contained in skill (e.g., "script" matches "javascript")
+            if len(word) > 3 and word in skill_lower:
+                best_match = max(best_match, 0.7)
+        
+        if best_match > 0.5:  # Only include meaningful matches
+            scores[skill] = best_match
+    
+    return scores
+
+def extract_experience_years(text: str) -> int:
+    """Extract years of experience from candidate text."""
+    # Look for patterns like "5 years", "5+ years", "5-7 years"
+    patterns = [
+        r'(\d+)\+?\s*years?\s*(?:of\s*)?experience',
+        r'(\d+)\+?\s*years?\s*in',
+        r'experience.*?(\d+)\+?\s*years?',
+        r'(\d+)\+?\s*yrs?'
+    ]
+    
+    max_years = 0
+    text_lower = text.lower()
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text_lower)
+        for match in matches:
+            try:
+                years = int(match)
+                max_years = max(max_years, years)
+            except ValueError:
+                continue
+    
+    return max_years
+
 def normalize_text(text: str) -> str:
     """Normalize text to ensure consistent processing between PDF and manual input."""
     if not text:
@@ -102,31 +208,119 @@ def get_openai_client():
         return None, f"Error initializing OpenAI client: {str(e)}"
 
 
+def parse_icp_requirements(icp_content: str) -> Dict[str, any]:
+    """Parse ICP content to extract structured requirements."""
+    requirements = {
+        'must_have': [],
+        'nice_to_have': [],
+        'experience_years': 0,
+        'skills': []
+    }
+    
+    lines = icp_content.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        line_lower = line.lower()
+        
+        # Extract experience requirements
+        years_match = re.search(r'(\d+)\+?\s*years?', line_lower)
+        if years_match:
+            requirements['experience_years'] = max(requirements['experience_years'], int(years_match.group(1)))
+        
+        # Categorize requirements
+        if 'must' in line_lower or 'required' in line_lower:
+            requirements['must_have'].append(line)
+        elif 'should' in line_lower or 'preferred' in line_lower or 'nice' in line_lower:
+            requirements['nice_to_have'].append(line)
+    
+    # Extract skills dynamically from entire content
+    requirements['skills'] = extract_skills_from_icp(icp_content)
+    
+    # Remove duplicates
+    for key in requirements:
+        if isinstance(requirements[key], list):
+            requirements[key] = list(set(requirements[key]))
+    
+    return requirements
+
 def construct_prompt(icp_content: str, profile_text: str) -> str:
     """
-    Dynamically construct the AI's System Prompt using the ICP criteria text and profile text.
+    Enhanced AI prompt with recruiter persona and intelligent evaluation.
     """
-    prompt = f"""You are an expert ICP (Ideal Customer Profile) evaluator. Analyze if this candidate profile matches the specified criteria.
+    # Parse requirements for structured analysis
+    requirements = parse_icp_requirements(icp_content)
+    
+    # Calculate intelligent scores
+    skill_scores = calculate_skill_match_score(requirements['skills'], profile_text)
+    experience_years = extract_experience_years(profile_text)
+    
+    # Build context for AI
+    skills_context = ""
+    if skill_scores:
+        skills_context = "\n\nSKILL ANALYSIS:"
+        for skill, score in skill_scores.items():
+            if score > 0:
+                skills_context += f"\n- {skill}: {score*100:.0f}% match"
+    
+    experience_context = f"\n\nEXPERIENCE ANALYSIS:\n- Candidate has {experience_years} years of experience\n- Required: {requirements['experience_years']} years"
+    
+    prompt = f"""You are an expert professional recruiter with 15+ years of experience in talent acquisition across all industries. Your expertise lies in holistic candidate evaluation that goes beyond keyword matching.
 
-ICP CRITERIA:
+ROLE: Senior Professional Recruiter & ICP Specialist
+EXPERTISE: Multi-Industry Talent Assessment, Skills Evaluation, Career Progression Analysis
+
+ICP REQUIREMENTS:
 {icp_content}
 
 CANDIDATE PROFILE:
-{profile_text}
+{profile_text}{skills_context}{experience_context}
+
+EVALUATION FRAMEWORK:
+
+1. CORE COMPETENCY (40%)
+   - Key skills alignment
+   - Equivalent experience recognition
+   - Domain knowledge understanding
+
+2. EXPERIENCE DEPTH (30%)
+   - Years of relevant experience
+   - Career progression trajectory
+   - Project complexity and impact
+
+3. ROLE ALIGNMENT (20%)
+   - Title and seniority match
+   - Responsibility scope
+   - Leadership/collaboration indicators
+
+4. GROWTH POTENTIAL (10%)
+   - Learning agility indicators
+   - Adaptability markers
+   - Industry evolution awareness
 
 INSTRUCTIONS:
-1. Analyze the profile against the ICP criteria
-2. Determine "Fit" or "Not Fit" based on how well the candidate matches the criteria
-3. Provide clear justification
+- Evaluate based on OVERALL FIT, not rigid rule-checking
+- Consider equivalent skills and transferable experience
+- Weight recent experience higher than older experience
+- Look for evidence-based indicators, not just keywords
+- Assess career trajectory and growth potential
+- Consider industry context and role requirements
+
+DECISION CRITERIA:
+- STRONG FIT: 80%+ alignment with core requirements
+- MODERATE FIT: 60-79% alignment, some gaps but strong potential
+- WEAK FIT: 40-59% alignment, significant gaps
+- NO FIT: <40% alignment
 
 REQUIRED FORMAT:
-Fit; [Your reasoning in 2-3 sentences]
-OR
-Not Fit; [Your reasoning in 2-3 sentences]
+[STRONG FIT/MODERATE FIT/WEAK FIT/NO FIT]; [Evidence-based reasoning citing specific examples from candidate's experience, including skill equivalencies considered and growth potential assessment]
 
 Examples:
-- "Fit; Candidate is a Senior Full Stack Engineer with 6+ years experience, explicitly mentions Node.js and React expertise, and has PostgreSQL database experience with CI/CD knowledge."
-- "Not Fit; While candidate has frontend React skills, they lack backend Node.js experience and don't mention database technologies or testing frameworks required for this role."
+- "STRONG FIT; Candidate demonstrates 6+ years in senior marketing role with Google Ads and Facebook Ads expertise. MBA from top-tier university aligns with education requirements. Evidence of team leadership managing 5+ person marketing teams and analytics proficiency with Google Analytics shows strategic thinking."
+- "MODERATE FIT; Candidate has 4 years marketing experience with digital advertising skills (equivalent to required digital marketing). Strong analytics background with Tableau shows data-driven approach. Missing direct team management but shows leadership potential through project management experience."
 
 Evaluate now:"""
     
@@ -179,10 +373,13 @@ def evaluate_profile(profile_text: str, icp_content: str) -> Tuple[str, str]:
             decision = decision.replace('[', '').replace(']', '').strip()
             
             # Validate the decision
-            if decision in ['Fit', 'Not Fit']:
+            valid_decisions = ['STRONG FIT', 'MODERATE FIT', 'WEAK FIT', 'NO FIT', 'Fit', 'Not Fit']
+            if any(valid_decision in decision.upper() for valid_decision in ['STRONG FIT', 'MODERATE FIT', 'WEAK FIT', 'NO FIT']):
+                return (decision, reasoning)
+            elif decision in ['Fit', 'Not Fit']:  # Backward compatibility
                 return (decision, reasoning)
             else:
-                return ('Error', f'Invalid decision format received: {decision}. Expected "Fit" or "Not Fit".')
+                return ('Error', f'Invalid decision format received: {decision}. Expected one of: STRONG FIT, MODERATE FIT, WEAK FIT, NO FIT.')
         else:
             return ('Error', f'Could not parse AI response. Expected format: "Decision; Reasoning". Received: {ai_response}')
             
@@ -250,7 +447,7 @@ def main():
         icp_text = st.text_area(
             "",
             height=200,
-            placeholder="Enter your ICP criteria in simple text format. For example:\n\nTitle: Senior Full Stack Engineer\n\nCriteria:\n- Must have 5+ years of experience\n- Must know Node.js and React\n- Must have database experience (PostgreSQL/MySQL)\n- Should have testing and CI/CD knowledge\n- Docker experience preferred",
+            placeholder="Enter your ICP criteria in simple text format. For example:\n\nTitle: Senior Marketing Manager\n\nCriteria:\n- Must have 5+ years of marketing experience\n- Must have digital marketing expertise (Google Ads, Facebook Ads)\n- Must have team management experience\n- Should have analytics skills (Google Analytics)\n- MBA preferred",
             key="icp_text_input"
         )
         if icp_text.strip():
@@ -339,41 +536,11 @@ def main():
             else:
                 st.markdown("<div style='color: red;'><i class='fas fa-times icon'></i>Failed to extract text from PDF. Please try a different file or use manual text input.</div>", unsafe_allow_html=True)
     
-    # Display ICP content if provided
-    if icp_content:
-        with st.expander("View Current ICP Criteria", expanded=False):
-            st.text(icp_content)
-    
     st.divider()
     
     # Show current input status
     if profile_text.strip():
         st.markdown(f"<div style='color: green;'><i class='fas fa-check icon'></i><b>Profile loaded from:</b> {input_source} ({len(profile_text)} characters)</div>", unsafe_allow_html=True)
-        
-        # Add debug information to help troubleshoot
-        with st.expander("Debug Information", expanded=False):
-            st.write(f"**Text length:** {len(profile_text)} characters")
-            st.write(f"**First 200 characters:**")
-            st.code(repr(profile_text[:200]))
-            st.write(f"**Last 200 characters:**")
-            st.code(repr(profile_text[-200:]))
-            
-            # Show whitespace and special character count
-            import string
-            whitespace_count = sum(1 for c in profile_text if c.isspace())
-            special_char_count = sum(1 for c in profile_text if not c.isalnum() and not c.isspace())
-            st.write(f"**Whitespace characters:** {whitespace_count}")
-            st.write(f"**Special characters:** {special_char_count}")
-            st.write(f"**Line breaks:** {profile_text.count(chr(10))}")
-            
-            # Show a downloadable version of the processed text
-            st.download_button(
-                label="Download Processed Text",
-                data=profile_text,
-                file_name=f"processed_text_{input_source.lower().replace(' ', '_')}.txt",
-                mime="text/plain",
-                help="Download the exact text that will be sent to AI for evaluation"
-            )
     
     # Evaluation button and results
     if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True, help="Click to start AI evaluation"):
@@ -388,43 +555,22 @@ def main():
         
         # Show processing spinner with debugging info
         with st.spinner("🤖 AI is evaluating the profile..."):
-            # Show debugging information
-            with st.expander("🔍 Debug: Text being sent to AI", expanded=False):
-                st.text_area(
-                    "Normalized text for AI evaluation:",
-                    value=profile_text[:500] + ("..." if len(profile_text) > 500 else ""),
-                    height=100,
-                    disabled=True,
-                    help="This shows the first 500 characters of the normalized text that will be sent to the AI"
-                )
-                st.write(f"**Text length:** {len(profile_text)} characters")
-                st.write(f"**Input source:** {input_source}")
-                
-                # Also show key terms that should be detected from the ICP configuration
-                key_terms = []
-                if icp_content:
-                    # Extract key terms from ICP content dynamically
-                    # Look for technology names, frameworks, databases, etc.
-                    tech_pattern = r'\b([A-Z][a-z]*(?:\.[a-z]+)?|[A-Z]{2,}(?:/[A-Z]+)*)\b'
-                    potential_terms = re.findall(tech_pattern, icp_content)
-                    # Filter to likely technology/skill terms (length > 2, not common words)
-                    common_words = {'Must', 'Should', 'The', 'And', 'For', 'With', 'Experience', 'Years', 'Including', 'Such', 'Like', 'Have', 'Know', 'Title', 'Criteria', 'Senior', 'Junior', 'Preferred'}
-                    key_terms = [term for term in set(potential_terms) if len(term) > 2 and term not in common_words][:10]  # Limit to 10 terms
-                
-                found_terms = [term for term in key_terms if term.lower() in profile_text.lower()]
-                missing_terms = [term for term in key_terms if term.lower() not in profile_text.lower()]
-                
-                if key_terms:
-                    st.write("**Key terms from ICP found in text:**", found_terms if found_terms else "None")
-                    st.write("**Key terms from ICP missing:**", missing_terms if missing_terms else "None")
-            
             # Call the evaluation function
             decision, reasoning = evaluate_profile(profile_text, icp_content)
         
         # Display results
         st.markdown("## <i class='fas fa-chart-bar icon'></i>Evaluation Results", unsafe_allow_html=True)
         
-        if decision == "Fit":
+        # Enhanced decision display with color coding
+        if "STRONG FIT" in decision.upper():
+            st.markdown(f"<div style='color: #00C851; font-size: 24px; font-weight: bold;'><i class='fas fa-star icon'></i>{decision}</div>", unsafe_allow_html=True)
+        elif "MODERATE FIT" in decision.upper():
+            st.markdown(f"<div style='color: #ffbb33; font-size: 22px; font-weight: bold;'><i class='fas fa-thumbs-up icon'></i>{decision}</div>", unsafe_allow_html=True)
+        elif "WEAK FIT" in decision.upper():
+            st.markdown(f"<div style='color: #ff8800; font-size: 20px; font-weight: bold;'><i class='fas fa-exclamation icon'></i>{decision}</div>", unsafe_allow_html=True)
+        elif "NO FIT" in decision.upper():
+            st.markdown(f"<div style='color: #ff4444; font-size: 20px; font-weight: bold;'><i class='fas fa-times-circle icon'></i>{decision}</div>", unsafe_allow_html=True)
+        elif decision == "Fit":
             st.markdown(f"<div style='color: green; font-size: 20px; font-weight: bold;'><i class='fas fa-check-circle icon'></i>{decision}</div>", unsafe_allow_html=True)
         elif decision == "Not Fit":
             st.markdown(f"<div style='color: red; font-size: 20px; font-weight: bold;'><i class='fas fa-times-circle icon'></i>{decision}</div>", unsafe_allow_html=True)
