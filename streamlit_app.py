@@ -2,7 +2,62 @@ import streamlit as st
 import json
 import openai
 import os
-from typing import Tuple
+from typing import Tuple, Optional
+import PyPDF2
+import pdfplumber
+import io
+import re
+
+
+def extract_text_from_pdf(pdf_file) -> Optional[str]:
+    """Extract text from uploaded PDF file using multiple methods for better accuracy."""
+    try:
+        # Reset file pointer to beginning
+        pdf_file.seek(0)
+        
+        # Method 1: Try pdfplumber first (better for complex layouts)
+        try:
+            with pdfplumber.open(pdf_file) as pdf:
+                text_parts = []
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if text:
+                        text_parts.append(text)
+                
+                if text_parts:
+                    extracted_text = '\n\n'.join(text_parts)
+                    # Clean up the text
+                    extracted_text = re.sub(r'\n+', '\n', extracted_text)  # Remove excessive newlines
+                    extracted_text = re.sub(r'\s+', ' ', extracted_text)   # Normalize whitespace
+                    return extracted_text.strip()
+        except Exception:
+            pass
+        
+        # Method 2: Fallback to PyPDF2
+        pdf_file.seek(0)
+        try:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            text_parts = []
+            
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:
+                    text_parts.append(text)
+            
+            if text_parts:
+                extracted_text = '\n\n'.join(text_parts)
+                # Clean up the text
+                extracted_text = re.sub(r'\n+', '\n', extracted_text)
+                extracted_text = re.sub(r'\s+', ' ', extracted_text)
+                return extracted_text.strip()
+        except Exception:
+            pass
+            
+        return None
+        
+    except Exception as e:
+        st.error(f"Error processing PDF: {str(e)}")
+        return None
 
 
 def get_openai_client():
@@ -187,16 +242,56 @@ def main():
         help="Upload a JSON file containing your ICP focus and rules"
     )
     
-    # Text area for LinkedIn profile
-    st.subheader("👤 LinkedIn Profile")
+    # Profile Input Section with multiple methods
+    st.subheader("👤 Candidate Profile Input")
     
-    st.markdown('<div class="big-label">Paste the LinkedIn \'About Section\' text here:</div>', unsafe_allow_html=True)
+    # Create tabs for different input methods (removed LinkedIn URL tab)
+    tab1, tab2 = st.tabs(["📝 Manual Text", "📄 PDF Resume"])
     
-    profile_text = st.text_area(
-        "",
-        height=200,
-        placeholder="Paste the LinkedIn profile's About section content here..."
-    )
+    profile_text = ""
+    input_source = ""
+    
+    with tab1:
+        st.markdown('<div class="big-label">Paste profile/resume text here:</div>', unsafe_allow_html=True)
+        manual_text = st.text_area(
+            "",
+            height=200,
+            placeholder="Paste the candidate's profile text, resume content, or LinkedIn About section here...",
+            key="manual_text"
+        )
+        if manual_text.strip():
+            profile_text = manual_text
+            input_source = "Manual Text"
+    
+    with tab2:
+        st.markdown('<div class="big-label">Upload PDF Resume:</div>', unsafe_allow_html=True)
+        uploaded_pdf = st.file_uploader(
+            "",
+            type=['pdf'],
+            help="Upload a PDF resume or LinkedIn profile export",
+            key="pdf_uploader"
+        )
+        
+        if uploaded_pdf is not None:
+            with st.spinner("📄 Extracting text from PDF..."):
+                extracted_text = extract_text_from_pdf(uploaded_pdf)
+                
+            if extracted_text:
+                st.success(f"✅ Successfully extracted {len(extracted_text)} characters from PDF")
+                
+                # Show preview of extracted text
+                with st.expander("📖 Preview Extracted Text", expanded=False):
+                    st.text_area(
+                        "Extracted content:",
+                        value=extracted_text[:1000] + ("..." if len(extracted_text) > 1000 else ""),
+                        height=150,
+                        disabled=True
+                    )
+                
+                profile_text = extracted_text
+                input_source = "PDF Resume"
+            else:
+                st.error("❌ Failed to extract text from PDF. Please try a different file or use manual text input.")
     
     # Display ICP configuration if uploaded
     icp_rules_json = None
@@ -216,6 +311,10 @@ def main():
     
     st.divider()
     
+    # Show current input status
+    if profile_text.strip():
+        st.success(f"✅ **Profile loaded from**: {input_source} ({len(profile_text)} characters)")
+    
     # Evaluation button and results
     if st.button("🚀 Run AI Evaluation", type="primary", use_container_width=True):
         # Validate inputs
@@ -224,7 +323,7 @@ def main():
             return
             
         if not profile_text.strip():
-            st.warning("⚠️ Please provide the LinkedIn profile text.")
+            st.warning("⚠️ Please provide candidate profile data using one of the input methods above.")
             return
         
         # Show processing spinner
