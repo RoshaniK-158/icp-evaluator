@@ -303,17 +303,21 @@ EVALUATION FRAMEWORK:
 
 INSTRUCTIONS:
 - Evaluate based on OVERALL FIT, not rigid rule-checking
-- Consider equivalent skills and transferable experience
+- Consider equivalent skills and transferable experience WITHIN the same or adjacent domains
 - Weight recent experience higher than older experience
 - Look for evidence-based indicators, not just keywords
 - Assess career trajectory and growth potential
 - Consider industry context and role requirements
+- CRITICAL: Immediately classify candidates from completely unrelated professions as NO FIT
+- Use WEAK FIT only for candidates within the same/adjacent domain who lack some requirements
 
 DECISION CRITERIA:
 - STRONG FIT: 80%+ alignment with core requirements
-- MODERATE FIT: 60-79% alignment, some gaps but strong potential
-- WEAK FIT: 40-59% alignment, significant gaps
-- NO FIT: <40% alignment
+- MODERATE FIT: 60-79% alignment, some gaps but strong potential  
+- WEAK FIT: 40-59% alignment, significant gaps but within same/adjacent domain
+- NO FIT: <40% alignment OR completely different profession/field
+
+CRITICAL: If candidate is from a completely unrelated profession (e.g., doctor, teacher, chef for a tech role), immediately classify as NO FIT regardless of other factors. Do not use WEAK FIT for career changers from entirely different fields.
 
 REQUIRED FORMAT:
 [STRONG FIT/MODERATE FIT/WEAK FIT/NO FIT]; [Evidence-based reasoning citing specific examples from candidate's experience, including skill equivalencies considered and growth potential assessment]
@@ -321,6 +325,7 @@ REQUIRED FORMAT:
 Examples:
 - "STRONG FIT; Candidate demonstrates 6+ years in senior marketing role with Google Ads and Facebook Ads expertise. MBA from top-tier university aligns with education requirements. Evidence of team leadership managing 5+ person marketing teams and analytics proficiency with Google Analytics shows strategic thinking."
 - "MODERATE FIT; Candidate has 4 years marketing experience with digital advertising skills (equivalent to required digital marketing). Strong analytics background with Tableau shows data-driven approach. Missing direct team management but shows leadership potential through project management experience."
+- "NO FIT; Candidate is a medical doctor with no software engineering background. No evidence of backend development (Node.js), frontend frameworks (React), database experience, or relevant technical skills. Medical expertise does not translate to software development requirements."
 
 Evaluate now:"""
     
